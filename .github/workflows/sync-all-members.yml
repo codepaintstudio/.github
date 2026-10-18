@@ -1,0 +1,35 @@
+name: Sync all-members team
+
+on:
+  schedule:
+    - cron: "0 2 * * *"
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: sync-all-members
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Add any new org members to the team
+        env:
+          GH_TOKEN: ${{ secrets.ORG_ADMIN_TOKEN }}
+          ORG: codepaintstudio
+          TEAM: all-members
+          ROLE: member
+        run: |
+          set -euo pipefail
+          gh api --paginate "orgs/$ORG/members?per_page=100" --jq '.[].login' | sort -u > /tmp/org.txt
+          gh api --paginate "orgs/$ORG/teams/$TEAM/members?per_page=100" --jq '.[].login' | sort -u > /tmp/team.txt
+          missing="$(comm -23 /tmp/org.txt /tmp/team.txt)"
+          if [ -z "$missing" ]; then echo "already in sync"; exit 0; fi
+          echo "to add:"; echo "$missing"
+          while IFS= read -r u; do
+            [ -z "$u" ] && continue
+            gh api -X PUT "orgs/$ORG/teams/$TEAM/memberships/$u" -f role="$ROLE" >/dev/null
+            echo "added: $u"
+          done <<< "$missing"
